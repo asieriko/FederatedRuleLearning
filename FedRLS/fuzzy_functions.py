@@ -2,7 +2,7 @@ import numpy as np
 
 def jaccard(set1, set2):
     # TODO: Other FS, T2...
-    universe = [min(set1[0],set2[0]), min(set1[-1],set2[-1])]
+    universe = [min(set1[0],set2[0]), max(set1[-1],set2[-1])]
     s1 = discretize(universe,set1)
     s2 = discretize(universe,set2)
     intersection = sum(np.minimum(s1,s2))
@@ -11,7 +11,7 @@ def jaccard(set1, set2):
         return 0
     return intersection/union
 
-def discretize(u, fset, n_points=100, shape=[0,0,1,1,0,0]):  # shape because the domain limits ...
+def discretize(u, fset, n_points=100, shape=[0,1,1,0]):  # shape because the domain limits ...
     return np.interp(np.linspace(u[0],u[1],n_points), fset, shape)
 
 
@@ -25,12 +25,12 @@ def antecedent_comparison(r1, r2):
     """
     acum = []
     for a1,a2 in zip(r1,r2):
-        if type(a1) == type(a2) == int:
+        if len(a1) == len(a2) == 1:
             acum.append(1)
-        elif type(a1) == int and a1 == -1:
-            acum.append(jaccard([a2[0],a2[1],a2[1],a2[-2],a2[-2],a2[-1]], a2))
-        elif type(a2) == int and a2 == -1:
-            acum.append(jaccard(a1, [a1[0],a1[1],a1[1],a1[-2],a1[-2],a1[-1]]))
+        elif len(a1) == 1:
+            acum.append(jaccard([a2[0],a2[0],a2[-1],a2[-1]], a2))
+        elif len(a2) == 1:
+            acum.append(jaccard(a1, [a1[0],a1[0],a1[-1],a1[-1]]))
         else:
             acum.append(jaccard(a1, a2))
 

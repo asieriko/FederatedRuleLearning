@@ -8,7 +8,8 @@ def parse_rule_base(rule_base):
     antecedents = rule_base.get_antecedents()
     fuzzy_type = antecedents[0].fuzzy_type()
     domains = [a.domain() for a in antecedents]
-    variable_names = [a.linguistic_variable_names() for a in antecedents]  # Names for each linguistic variable, for each antecedent
+    variable_names = [a.name for a in antecedents]
+    term_names = [a.linguistic_variable_names() for a in antecedents]  # Names for each linguistic variable, for each antecedent
     linguistic_variables = [a.get_linguistic_variables() for a in antecedents]  # n_antecedents * 3 (n_var)
     linguistic_variables_params = [[a.membership_parameters for a in lv] for lv in linguistic_variables] # n_antecedents * 3 (n_var) * n_param (4 for t1 trap)
     rule_base_matrix = rule_base.get_rulebase_matrix()
@@ -17,14 +18,13 @@ def parse_rule_base(rule_base):
         for rule in r_base:
             rule_params = []
             for ia, ant in enumerate(rule):
-                print(ant)
                 if ant != -1:
                     rule_params.append(linguistic_variables_params[ia][int(ant)])
                 else:
                     rule_params.append([-1])
             rule_params.append(consequent_names[icon])
             rule_base_matrix_params.append(rule_params)
-    return rule_base_matrix_params
+    return rule_base_matrix_params, domains, variable_names
 
 
 def create_fuzzy_variable(name:str, domain:list[int], params:list[list], fsnames=["Low","Medium","High"]):
