@@ -3,14 +3,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedKFold
 import pandas as pd
 import numpy as np
-from random import shuffle
+from random import shuffle, seed
 import sys, os
 sys.path.append(os.path.abspath("."))
 from FedRLS.FedRLS import FedRLS
 
-def generate_local_agents(X, y, n_clients):
+def generate_local_agents(X, y, n_clients, random_seed=1):
     clients = []
     idx = list(range(len(y)))
+    seed(random_seed)
     shuffle(idx)
     n = len(y) // n_clients
     for i in range(n_clients):

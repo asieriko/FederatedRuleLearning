@@ -34,12 +34,25 @@ class LocalAgent:
                                                                                 random_state=0)
 
         self.fl_classifier = None
-        self.rule_base = None  # Or take them directly from fl_classifier
+        # Or take them directly from fl_classifier
         self.performance = None
-    def set_model(self, model, n_gen, n_pop):
-        self.fl_classifier = model
+
+    def set_model(self, nRules, nAnts, fz_type_studied, tolerance,runner, n_gen, n_pop):
         self.n_gen = n_gen
         self.n_pop = n_pop
+
+        class_names = np.unique(self.dataset[1])
+        precomputed_partitions = utils.construct_partitions(self.X, fz_type_studied)
+        model = GA.BaseFuzzyRulesClassifier(
+            nRules=nRules,
+            nAnts=nAnts,
+            fuzzy_type=fz_type_studied, 
+            verbose=False,
+            tolerance=tolerance, 
+            linguistic_variables=precomputed_partitions,
+            class_names=class_names,
+            runner=runner)
+        self.fl_classifier = model
 
     def set_dataset(self, dataset):
         self.dataset = dataset
@@ -51,8 +64,7 @@ class LocalAgent:
             self.fl_classifier.load_master_rule_base(mrule_base)
 
         # fl_classifier.customized_loss(utils.mcc_loss)
-        self.fl_classifier.fit(self.X_train, self.y_train, n_gen=self.n_gen, pop_size=self.n_pop)
-        self.rule_base = self.fl_classifier.rule_base
+        self.fl_classifier.fit(self.X_train, self.y_train, n_gen=self.n_gen, pop_size=self.n_pop, random_state = 23)
         # str_rules = eval_tools.eval_fuzzy_model(self.fl_classifier, self.X_train, self.y_train, self.X_test, self.y_test,
         #                                         plot_rules=True, print_rules=True, plot_partitions=True,
         #                                         return_rules=True)
@@ -61,8 +73,16 @@ class LocalAgent:
         print(self.fl_classifier.performance)
         print(self.fl_classifier.rule_base)
 
-        return self.rule_base
+        return self.fl_classifier.rule_base
         # antecedents list of  ex_fuzzy.fuzzy_sets.fuzzyVariable
         # consequent_names list of string
         # rule_bases a list of
+
+    def update_rule_base(self, new_rule_base):
+        self.fl_classifier.load_master_rule_base(new_rule_base)
+    
+    def eval_test(self):
+        predicted = self.fl_classifier.predict(self.X_test)
+        performance = np.mean(np.equal(predicted, self.y_test))
+        print(performance)
 

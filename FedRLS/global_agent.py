@@ -20,12 +20,13 @@ import ex_fuzzy.persistence as persistence
 import ex_fuzzy.vis_rules as vis_rules
 
 from .fuzzy_functions import comparison, antecedent_comparison
-from .ex_fuzzy_manager import parse_rule_base
+from .ex_fuzzy_manager import parse_rule_base, create_rule_base
 
 def run_process(agent, rule_base):
     agent.fit(rule_base)
 
-def init_agent(agent):
+def init_agent(agent, fz_type_studied):
+    agent.fz_type_studied = fz_type_studied
     agent.fit()
 
 def fit_agent(agent, rule_base):
@@ -38,7 +39,7 @@ class GlobalAgent():
     
     def __init__(self):
         # model parameters:
-        self.n_gen = 30
+        self.n_gen = 50
         self.n_pop = 50
 
         self.nRules = 15
@@ -55,17 +56,7 @@ class GlobalAgent():
     def set_clients(self, clients):
         self.clients = clients
         for client in self.clients.values():
-            class_names = np.unique(client['dataset'][1])
-            model = GA.BaseFuzzyRulesClassifier(
-                nRules=self.nRules,
-                nAnts=self.nAnts,
-                n_linguist_variables=self.vl, 
-                fuzzy_type=self.fz_type_studied, 
-                verbose=False,
-                tolerance=self.tolerance, 
-                class_names=class_names,
-                runner=self.runner)
-            client['agent'].set_model(model, self.n_gen, self.n_pop)
+            client['agent'].set_model(self.nRules, self.nAnts, self.fz_type_studied, self.tolerance,self.runner, self.n_gen,self. n_pop)
 
     def start(self):
         print("Start")
@@ -77,11 +68,13 @@ class GlobalAgent():
 
         # with ThreadPool (processes=4) as pool:
         #      pool.map(init_agent, agents)
+
+        # for client in self.clients.values():
+        #     pool.apply_async(target=run_process, args=(client['agent'],))
         for agent in agents:
-            init_agent(agent)
+            init_agent(agent, self.fz_type_studied)
         print("Started")
-            # for client in self.clients.values():
-            #     pool.apply_async(target=run_process, args=(client['agent'],))
+
 
 
     # initialize clients, send model template? partial GA.BaseFuzzyRulesClassifier
@@ -132,54 +125,100 @@ class GlobalAgent():
             rules.extend(rule_base_matrix_params)
 
             for rule in rule_base_matrix_params:
-                rules_by_class[rule[-1]].append([rule[:-1],rule[-1]])
+                rules_by_class[rule["class"]].append({
+                    "var_shape": rule["var_shape"],
+                    "var_idx": rule["var_idx"],
+                    "class":rule["class"],
+                    "score":rule["score"]})
+                # rules_by_class[rule[-1]].append([rule[:-1],rule[-2],rule[-1]])
                 # TODO: add some metric to aid in the rule selection - rule.score, rule.confidence, rule.accuracy, rule.support
 
         df = pd.DataFrame(np.array(domains).T,columns=variable_names)
         partitions = utils.construct_partitions(df, self.fz_type_studied)
 
         return rules, rules_by_class, partitions
-                
-    def compare_rule_bases(self, rules, rules_by_class):
+
+
+    def find_contradictory_rules(self, rules_by_class):
         # Find contradictory rules. High simmilarity on the antecedents but different class
+        # the measure as it is, returns the minimum comparison value among all antecedents
+        # it can happen that for rules with one antecedent if another has the same term
+        # that the value could be high and not contradictory
         contradictory_rules = []
-        for k1 in rules_by_class.keys():
+        classes = list(rules_by_class.keys())
+        for k1_idx in range(len(classes)):
+            k1 = classes[k1_idx]
             nrk1 = len(rules_by_class[k1])
-            for k2 in rules_by_class.keys():
+            for k2_idx in classes[k1_idx+1:]:
+                k2 = classes[k2_idx]
                 if k2 == k1:
                     continue
                 nrk2 = len(rules_by_class[k2])
                 for i1 in range(nrk1):
                     for i2 in range(nrk2):
-                        cj = antecedent_comparison(rules_by_class[k1][i1][0],rules_by_class[k2][i2][0])
+                        cj = antecedent_comparison(rules_by_class[k1][i1]["var_shape"] ,rules_by_class[k2][i2]["var_shape"])
                         if cj > self.contradictory_factor:
-                            contradictory_rules.append([k1,i1,k2,i2,cj])                 
+                            contradictory_rules.append([k1,i1,k2,i2,cj])  
 
-        print(contradictory_rules)
+        return contradictory_rules
 
+    def find_similar_rules(self, rules_by_class):
         # Test similarity among the rules in the same class
         similar_rules = {}
-        for k in rules_by_class.keys():
+        classes = list(rules_by_class.keys())
+        for k in classes:
             nrk = len(rules_by_class[k])
             com_mat_k = np.zeros((nrk, nrk))
             for i1 in range(nrk):
                 for i2 in range(i1+1,nrk):
-                    cj = comparison(rules_by_class[k][i1],rules_by_class[k][i2])
+                    cj = comparison([rules_by_class[k][i1]["var_shape"], rules_by_class[k][i1]["class"]],[rules_by_class[k][i2]["var_shape"],rules_by_class[k][i2]["class"]] )
                     com_mat_k[i1][i2] = cj
                     # or instead of the matrix, directly create the list, like above
             similar_rules[k] = np.argwhere(com_mat_k>self.sim_threshold)
-        
-        print(similar_rules)
 
-    def update_clients(self, partitions): # new rule base with selected rules
-        agents = [client['agent'] for client in self.clients.values()]
-        for agent in agents:
-            agent.rule_base.antecedets = partitions
-            # for rb in agent.rule_bases:  # Not sure if this is needed
-            #     rb.antecedets = partitions
+        return similar_rules
+
+
+    def compare_rule_bases(self, rules_by_class):
+        contradictory_rules = self.find_contradictory_rules(rules_by_class)               
+
+        print("contradictory_rules")
+        print(contradictory_rules)
+
+        # Delete from higher rule index to lower
+        # Determine first wich rule to delete (lower score)
+        # del rules_by_class[class_i][rule_i] 
+
+        similar_rules = self.find_similar_rules(rules_by_class)
+        
+        print("similar_rules")
+        classes = list(rules_by_class.keys())
+        for k in classes:
+            if len(similar_rules[k]) > 0:
+                # rules_by_class[k][similar_rules[k][0][0]]["score"]  
+                print(similar_rules[k])
+
+        return rules_by_class
+
+    def update_clients(self, new_rule_base): # new rule base with selected rules
+        # agents = [client['agent'] for client in self.clients.values()]
+        for client in self.clients.values():
+            client['agent'].update_rule_base(new_rule_base)
+
+    def eval_clients(self):
+        for client in self.clients.values():
+            client['agent'].eval_test()
+
+    def print_clients(self):
+        for client in self.clients.values():
+            print(client['agent'].fl_classifier.rule_base)
 
     def main(self):
         self.start()
         rules, rules_by_class, partitions = self.extract_rule_bases()
-        self.compare_rule_bases(rules, rules_by_class)
-        self.update_clients(partitions)
+        rules_by_class = self.compare_rule_bases(rules_by_class)
+        nrb = create_rule_base(partitions, rules_by_class)
+        self.eval_clients()
+        self.update_clients(nrb)
+        self.eval_clients()
+        self.print_clients()

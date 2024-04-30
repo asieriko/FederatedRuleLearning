@@ -48,7 +48,7 @@ def comparison(r1, r2):
     """
     if r1[-1] != r2[-1]:
         return 0
-    comp = antecedent_comparison(r1[:-1][0],r2[:-1][0])
+    comp = antecedent_comparison(r1[0],r2[0])
     # I return this because I use min in the aggregation of the antecedents and
     # as the consequences are equal their comparison is 1, so min(comp,1)=comp
     return comp
