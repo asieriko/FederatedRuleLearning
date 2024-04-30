@@ -14,6 +14,7 @@ import ex_fuzzy.fuzzy_sets as fs
 import ex_fuzzy.evolutionary_fit as GA
 import ex_fuzzy.utils as utils
 import ex_fuzzy.eval_tools as eval_tools
+import ex_fuzzy.eval_rules as eval_rules
 import ex_fuzzy.persistence as persistence
 import ex_fuzzy.vis_rules as vis_rules
 
@@ -21,7 +22,6 @@ from .fuzzy_functions import comparison, antecedent_comparison
 from .ex_fuzzy_manager import parse_rule_base
 
 class LocalAgent:
-    pass
 
     def __init__(self, dataset):
         self.dataset = dataset
@@ -56,7 +56,7 @@ class LocalAgent:
 
     def set_dataset(self, dataset):
         self.dataset = dataset
-        self.X = dataset[0]
+        self.X = dataset[0].to_numpy()
         self.y = dataset[1]
 
     def fit(self, mrule_base=None):
@@ -82,6 +82,8 @@ class LocalAgent:
         self.fl_classifier.load_master_rule_base(new_rule_base)
     
     def eval_test(self):
+        evb = eval_rules.evalRuleBase(self.fl_classifier.rule_base, self.X.to_numpy(), self.y)
+        evb.add_classification_metrics()
         predicted = self.fl_classifier.predict(self.X_test)
         performance = np.mean(np.equal(predicted, self.y_test))
         print(performance)

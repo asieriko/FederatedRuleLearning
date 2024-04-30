@@ -62,7 +62,7 @@ def create_rule_base(partitions, rules_by_keys):
         for rule_i in rules_by_keys[key]:
             # FIXME where to store the original rules with indices
             R = rules.RuleSimple(rule_i["var_idx"] ,key)
-            R.score = rule_i["score"]
+            # R.score = rule_i["score"]  # IF we add score. then it does not get update on the client
             rule_lst.append(R)
         RB = rules.RuleBaseT1(antecedents=partitions, rules=rule_lst)
         rule_bases.append(RB)

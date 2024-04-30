@@ -2,6 +2,7 @@ from functools import partial
 from multiprocessing import Process, Pool
 from multiprocessing.pool import ThreadPool
 import concurrent.futures
+import copy
 from collections import defaultdict
 
 import pandas as pd
@@ -203,11 +204,13 @@ class GlobalAgent():
     def update_clients(self, new_rule_base): # new rule base with selected rules
         # agents = [client['agent'] for client in self.clients.values()]
         for client in self.clients.values():
-            client['agent'].update_rule_base(new_rule_base)
+            client['agent'].update_rule_base(copy.deepcopy(new_rule_base))
 
     def eval_clients(self):
         for client in self.clients.values():
+            print("ev")
             client['agent'].eval_test()
+            print(client['agent'].fl_classifier.rule_base)
 
     def print_clients(self):
         for client in self.clients.values():
