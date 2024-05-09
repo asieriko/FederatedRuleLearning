@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from sklearn import datasets
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import precision_recall_fscore_support
 
 import os,sys
 sys.path.append(os.path.abspath(os.path.join("..","ex-fuzzy","ex_fuzzy")))
@@ -70,21 +71,66 @@ class LocalAgent:
         #                                         return_rules=True)
 
         self.performance = self.fl_classifier.performance
-        print(self.fl_classifier.performance)
-        print(self.fl_classifier.rule_base)
+        # print(self.fl_classifier.performance)
+        # print(self.fl_classifier.rule_base)
 
         return self.fl_classifier.rule_base
         # antecedents list of  ex_fuzzy.fuzzy_sets.fuzzyVariable
         # consequent_names list of string
         # rule_bases a list of
 
+    def predict(self,X):
+        return self.fl_classifier.predict(X)
+
     def update_rule_base(self, new_rule_base):
         self.fl_classifier.load_master_rule_base(new_rule_base)
     
-    def eval_test(self):
-        evb = eval_rules.evalRuleBase(self.fl_classifier.rule_base, self.X.to_numpy(), self.y)
+
+    def eval_each_rule(self,base_performance):
+        activations = []
+        for rule_bases in self.fl_classifier.rule_base:
+            activations_i = []
+            for rule in rule_bases:
+                prev_score = rule.score
+                rule.score = 0
+                performance = self.eval_rule_base(self.fl_classifier.rule_base)
+                # print(performance)#,precision_recall_fscore_support(predicted, self.y_test,average="weighted"))
+                rule.score = prev_score
+                if performance == base_performance:
+                    activations_i.append(1)
+                elif performance < base_performance:
+                    activations_i.append(2)
+                else:
+                    activations_i.append(0)
+            activations.append(activations_i)
+        # [len(rb.rules) for rb in self.fl_classifier.rule_base.rule_bases]
+        # to copy shape to activations
+        return activations
+
+    def adjust_scores(self, activations):
+        for rule_bases, acts in zip(self.fl_classifier.rule_base, activations):
+            for rule, acti in zip(rule_bases, acts):
+                if acti == 0:
+                    rule.score = 0
+
+
+
+
+    def eval_rule_base(self, rb):
+        evb = eval_rules.evalRuleBase(rb, self.X.to_numpy(), self.y)
         evb.add_classification_metrics()
         predicted = self.fl_classifier.predict(self.X_test)
         performance = np.mean(np.equal(predicted, self.y_test))
-        print(performance)
+        return performance
+
+    def eval_test(self):
+        performance = self.eval_rule_base(self.fl_classifier.rule_base)
+        print("Initial performance: ", performance)#,precision_recall_fscore_support(predicted, self.y_test,average="weighted"))
+        activations = self.eval_each_rule(performance)
+        print(activations)
+        print("Adjust scores")
+        self.adjust_scores(activations)
+        print("new eval")
+        performance = self.eval_rule_base(self.fl_classifier.rule_base)
+        print("Final performance: ", performance)
 

@@ -53,8 +53,9 @@ def dataset_xtrem(dataset):
 
 
 iris = datasets.load_iris()
+bcancer = datasets.load_breast_cancer()
 telescope = load_magic_telescope()
-clients_datasets = generate_local_agents(iris, 3)
+clients_datasets = generate_local_agents(telescope, 3)
 # print(clients_datasets)
 # clients_datasets = dataset_xtrem(iris)
 fedrls = FedRLS(clients_datasets)

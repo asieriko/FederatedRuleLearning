@@ -40,8 +40,8 @@ class GlobalAgent():
     
     def __init__(self):
         # model parameters:
-        self.n_gen = 50
-        self.n_pop = 50
+        self.n_gen = 100
+        self.n_pop = 100
 
         self.nRules = 15
         self.nAnts = 4
@@ -208,20 +208,34 @@ class GlobalAgent():
 
     def eval_clients(self):
         for client in self.clients.values():
-            print("ev")
             client['agent'].eval_test()
-            print(client['agent'].fl_classifier.rule_base)
 
     def print_clients(self):
         for client in self.clients.values():
             print(client['agent'].fl_classifier.rule_base)
 
+    def retrain_clients(self):
+        for client in self.clients.values():
+            client['agent'].fit()
+
+
     def main(self):
+        print("First Train")
         self.start()
         rules, rules_by_class, partitions = self.extract_rule_bases()
         rules_by_class = self.compare_rule_bases(rules_by_class)
         nrb = create_rule_base(partitions, rules_by_class)
         self.eval_clients()
+        print("Update Clients")
         self.update_clients(nrb)
         self.eval_clients()
-        self.print_clients()
+        print("Retrain")
+        self.retrain_clients()
+        rules, rules_by_class, partitions = self.extract_rule_bases()
+        rules_by_class = self.compare_rule_bases(rules_by_class)
+        nrb = create_rule_base(partitions, rules_by_class)
+        self.eval_clients()
+        print("Update Clients")
+        self.update_clients(nrb)
+        self.eval_clients()
+        # self.print_clients()
