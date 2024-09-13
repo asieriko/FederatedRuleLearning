@@ -8,12 +8,9 @@ from random import shuffle, seed
 from collections import namedtuple
 import sys, os
 sys.path.append(os.path.abspath("."))
-<<<<<<< HEAD
-=======
 import ex_fuzzy.fuzzy_sets as fs
 import ex_fuzzy.evolutionary_fit as GA
 import ex_fuzzy.utils as utils
->>>>>>> 04c9cba (add a parameter dictionary with experiment configuration)
 from FedRLS.FedRLS import FedRLS
 
 Dataset = namedtuple("Dataset", "data, feature_names, target, target_names")
@@ -57,16 +54,6 @@ def dataset_xtrem(dataset):
         clients.append([X_i, y_i])
     return clients
 
-<<<<<<< HEAD
-
-iris = datasets.load_iris()
-bcancer = datasets.load_breast_cancer()
-telescope = load_magic_telescope()
-clients_datasets = generate_local_agents(telescope, 3)
-# print(clients_datasets)
-# clients_datasets = dataset_xtrem(iris)
-fedrls = FedRLS(clients_datasets)
-=======
 def non_federated(dataset,n_gen=30,n_pop=50,nRules=15,nAnts=4,fz_type_studied=fs.FUZZY_SETS.t1,tolerance=0.001,runner=1,ramdom_seed=23,**args):
     # ,**args: to avoid "unexpected keyword for parameters not needed in this function but which are compiled into model_parameters"
         n_gen = n_gen
@@ -128,5 +115,4 @@ non_federated(dataset,**model_parameters)
 # print(clients_datasets)
 # clients_datasets = dataset_xtrem(iris)
 fedrls = FedRLS(clients_datasets, model_parameters)
->>>>>>> 04c9cba (add a parameter dictionary with experiment configuration)
 fedrls.local()
