@@ -1,3 +1,9 @@
+<<<<<<< HEAD
 scikit-learn
 pandas
 ex-fuzzy
+=======
+scikit-learn
+pandas
+ex-fuzzy
+>>>>>>> 04c9cba (add a parameter dictionary with experiment configuration)

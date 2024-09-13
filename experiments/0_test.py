@@ -8,6 +8,12 @@ from random import shuffle, seed
 from collections import namedtuple
 import sys, os
 sys.path.append(os.path.abspath("."))
+<<<<<<< HEAD
+=======
+import ex_fuzzy.fuzzy_sets as fs
+import ex_fuzzy.evolutionary_fit as GA
+import ex_fuzzy.utils as utils
+>>>>>>> 04c9cba (add a parameter dictionary with experiment configuration)
 from FedRLS.FedRLS import FedRLS
 
 Dataset = namedtuple("Dataset", "data, feature_names, target, target_names")
@@ -51,6 +57,7 @@ def dataset_xtrem(dataset):
         clients.append([X_i, y_i])
     return clients
 
+<<<<<<< HEAD
 
 iris = datasets.load_iris()
 bcancer = datasets.load_breast_cancer()
@@ -59,4 +66,67 @@ clients_datasets = generate_local_agents(telescope, 3)
 # print(clients_datasets)
 # clients_datasets = dataset_xtrem(iris)
 fedrls = FedRLS(clients_datasets)
+=======
+def non_federated(dataset,n_gen=30,n_pop=50,nRules=15,nAnts=4,fz_type_studied=fs.FUZZY_SETS.t1,tolerance=0.001,runner=1,ramdom_seed=23,**args):
+    # ,**args: to avoid "unexpected keyword for parameters not needed in this function but which are compiled into model_parameters"
+        n_gen = n_gen
+        n_pop = n_pop
+
+        class_names = dataset.target_names  # np.unique(dataset[1])
+        X = dataset.data
+        y = dataset.target
+        precomputed_partitions = utils.construct_partitions(X, fz_type_studied)
+        model = GA.BaseFuzzyRulesClassifier(
+            nRules=nRules,
+            nAnts=nAnts,
+            fuzzy_type=fz_type_studied, 
+            verbose=False,
+            tolerance=tolerance, 
+            linguistic_variables=precomputed_partitions,
+            class_names=class_names,
+            runner=runner)
+        fl_classifier = model
+        
+        X_train = X
+        y_train = y
+        fl_classifier.fit(X_train, y_train, n_gen=n_gen, pop_size=n_pop, random_state = ramdom_seed)
+        # str_rules = eval_tools.eval_fuzzy_model(fl_classifier, X_train, y_train, X_test, y_test,
+        #                                         plot_rules=True, print_rules=True, plot_partitions=True,
+        #                                         return_rules=True)
+
+        performance = fl_classifier.performance
+        print("-- Non Federated Case -- ")
+        print(performance)
+        print(fl_classifier.rule_base)
+        print(f"LOG:,NonFederated,{performance}")
+
+iris = datasets.load_iris()
+bcancer = datasets.load_breast_cancer()
+digits = datasets.load_digits()
+telescope = load_magic_telescope()
+
+dataset = bcancer
+
+ramdom_seed = 23
+
+model_parameters = {
+    "n_gen":30,
+    "n_pop":50,
+    "nRules":15,
+    "nAnts":4,
+    "fz_type_studied":fs.FUZZY_SETS.t1,
+    "tolerance":0.001,
+    "runner":1,
+    "ramdom_seed":23,
+    "sim_threshold":0.7,
+    "contradictory_factor":0.7
+}
+
+
+clients_datasets = generate_local_agents(dataset, 3)
+non_federated(dataset,**model_parameters)
+# print(clients_datasets)
+# clients_datasets = dataset_xtrem(iris)
+fedrls = FedRLS(clients_datasets, model_parameters)
+>>>>>>> 04c9cba (add a parameter dictionary with experiment configuration)
 fedrls.local()
