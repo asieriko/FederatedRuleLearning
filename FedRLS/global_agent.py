@@ -1,4 +1,3 @@
-from functools import partial
 from multiprocessing import Process, Pool
 from multiprocessing.pool import ThreadPool
 import concurrent.futures
@@ -30,9 +29,6 @@ def train_client(agent, rule_base=None):
     else:
         agent.fit()
 
-def train_agent_rulebase(rule_base):
-    f = partial(fit_agent, rule_base=rule_base)
-
 class GlobalAgent():
     
     def __init__(self, model_parameters):
@@ -50,6 +46,7 @@ class GlobalAgent():
 
         self.sim_threshold = model_parameters["sim_threshold"]
         self.contradictory_factor = model_parameters["contradictory_factor"]  # threshold to consider two rules with different consequents contradictory
+        self.max_retrains = model_parameters["max_retrains"]
 
     def set_clients(self, clients):
         self.clients = clients
@@ -144,6 +141,8 @@ class GlobalAgent():
         # the measure as it is, returns the minimum comparison value among all antecedents
         # it can happen that for rules with one antecedent if another has the same term
         # that the value could be high and not contradictory
+        # Returns a list of list of contradictory pairs, each of them:
+        # [class_rule1,index_rule1,k2,i2,comparison_value]
         contradictory_rules = []
         classes = list(rules_by_class.keys())
         for k1_idx in range(len(classes)):
@@ -182,12 +181,22 @@ class GlobalAgent():
     def compare_rule_bases(self, rules_by_class):
         contradictory_rules = self.find_contradictory_rules(rules_by_class)               
 
-        # print("contradictory_rules")
-        # print(contradictory_rules)
-
-        # Delete from higher rule index to lower
-        # Determine first wich rule to delete (lower score)
-        # del rules_by_class[class_i][rule_i] 
+        if len(contradictory_rules) != 0:
+            # TODO: Maybe take into accoutn each rules score
+            # if one of them is high and the other low, remove the later
+            # print("contradictory_rules")
+            # print(contradictory_rules)
+            to_delete = defaultdict(set)
+            for rule in contradictory_rules:
+                to_delete[rule[0]].add(rule[1])
+                to_delete[rule[2]].add(rule[3])
+            for k,v in to_delete.items():
+                for vi in sorted(v,reverse=True):
+                    del rules_by_class[k][vi]
+            # Delete from higher rule index to lower
+            # Determine first wich rule to delete (lower score)
+            # rules_by_class[class_i][rule_i] ["score"]
+            # del rules_by_class[class_i][rule_i] 
 
         similar_rules = self.find_similar_rules(rules_by_class)
         # TODO: I commented the previos print and following block
@@ -204,7 +213,8 @@ class GlobalAgent():
         performances = []
         for client in self.clients.values():
             performances.append(client['agent'].eval_test())
-        print(f"fLOG: {np.mean(performances)=}")
+        print(f"LOG: AVG {np.mean([x['final_accuracy']['accuracy'] for x in performances])}")
+        return performances
 
 
     def print_clients(self):
@@ -232,24 +242,28 @@ class GlobalAgent():
         agents_mm = np.array([client['agent'].get_max_min() for client in self.clients.values()])
         X_range = np.stack([np.min(agents_mm[:,0],axis=0),np.max(agents_mm[:,1],axis=0)])
         precomputed_partitions = utils.construct_partitions(X_range, self.fz_type_studied)
+        # Those partitions should be sent to the clients
         print(f"LOG:,1stTrain")
         self.start()
         rules, rules_by_class, partitions = self.extract_rule_bases()
-        # rules_by_class = self.compare_rule_bases(rules_by_class)
+        rules_by_class = self.compare_rule_bases(rules_by_class)
         nrb = create_rule_base(partitions, rules_by_class)
-        self.eval_clients()
+        clients_performances = []
+        clients_performances.append({'type':'train','epoch':0,'results':self.eval_clients()})
         print(f"LOG:,1stUpdate")
         self.update_clients(nrb)
-        self.eval_clients()
-        n_retrains = 3
-        for i in range(n_retrains):
+        clients_performances.append({'type':'update','epoch':0,'results':self.eval_clients()})
+        for i in range(1,self.max_retrains+1):
             print(f"LOG:,{i}-Retrain clients")
             self.retrain_clients(nrb)
             rules, rules_by_class, partitions = self.extract_rule_bases()
-            # rules_by_class = self.compare_rule_bases(rules_by_class)
+            rules_by_class = self.compare_rule_bases(rules_by_class)
             nrb = create_rule_base(partitions, rules_by_class)
-            self.eval_clients()
+            clients_performances.append({'type':'train','epoch':i,'results':self.eval_clients()})
             print(f"LOG:,{i}-update clients")
             self.update_clients(nrb)
-            self.eval_clients()
+            clients_performances.append({'type':'update','epoch':i,'results':self.eval_clients()})
             # self.print_clients()
+        print("End:")
+        print(nrb)
+        return rules_by_class, clients_performances

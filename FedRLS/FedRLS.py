@@ -17,10 +17,9 @@ from .local_agent import LocalAgent
 class FedRLS:
     def __init__(self, datasets, model_parameters):
         self.clients = {}
-        self.server = None
         self.datasets = datasets
         self.server = GlobalAgent(model_parameters)
-        self.ramdom_seed = model_parameters["ramdom_seed"]
+        self.random_seed = model_parameters["random_seed"]
 
     # initialize the clients with their data
     # intialize the server
@@ -28,12 +27,18 @@ class FedRLS:
 
     def init_clients(self, datasets):
         for i in range(len(datasets)):
-            la = LocalAgent(datasets[i],name=f"Client {i}",ramdom_seed=self.ramdom_seed)
+            la = LocalAgent(datasets[i],name=f"Client {i}",random_seed=self.random_seed)
             self.clients[i] = {"agent": la, "dataset": datasets[i]}
         self.server.set_clients(self.clients)
 
+    def clients_rules(self):
+        rules = []
+        for client in self.clients.values():
+            rules.append(client["agent"].fl_classifier.rule_base)
+        return rules
+
     def local(self):
         self.init_clients(self.datasets)
-        self.server.main()
+        return self.server.main()
         # vis_rules.plot_fuzzy_variable(r.antecedents[0])
         # vis_rules.visualize_rulebase(r)
