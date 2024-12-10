@@ -219,7 +219,8 @@ def plot_rules_and_clients(rules, clients_activations,title_rules, title_clients
     # fig.suptitle(title)
 
     if fileName:
-        plt.savefig(fileName)    
+        plt.savefig(fileName)
+        plt.close()    
     else:
         plt.show() 
 
@@ -316,7 +317,8 @@ def plot_rules(rules, title_rules, title,fileName=None,attr=None,n_attr=3,n_clas
     # fig.suptitle(title)
 
     if fileName:
-        plt.savefig(fileName)    
+        plt.savefig(fileName)
+        plt.close()    
     else:
         plt.show() 
 
@@ -371,6 +373,44 @@ def plot_rules_clients(rules, fileName,n_classes):
                     title="Generated rules and activations per clients",
                     fileName=fileName,
                     n_classes=n_classes)
+
+def plot_metrics(df, metric, methods_to_plot=None, plot_title=None,file_name=None):
+    if methods_to_plot is None:
+        methods_to_plot = df.index.get_level_values('Method').unique()
+
+    plt.figure(figsize=(10, 6))
+    for method in methods_to_plot:
+        method_data = df.xs(method, level='Method')
+        plt.bar(
+            method,
+            method_data[('mean',metric)],
+            yerr=method_data[('std',metric)],
+            capsize=5, label=method, alpha=0.8
+        )
+
+    if plot_title:
+        plt.title(plot_title)
+    else:
+        plt.title(f'Mean {metric} for Each Method')
+
+    plt.ylabel(f'{metric}')
+    plt.xlabel('Methods')
+    plt.legend(title='Methods')
+    plt.tight_layout()
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    if file_name:
+        plt.savefig(file_name)
+        plt.close()
+    else:
+        plt.show()
+
+def plot_metrics_per_client(df, metric, methods_to_plot=None, plot_title=None,file_name=None):
+    if methods_to_plot is None:
+        methods_to_plot = df.index.get_level_values('Method').unique()
+
+    plt.figure(figsize=(10, 6))
+    plt.show()
+
 
 
 if __name__ == "__main__":

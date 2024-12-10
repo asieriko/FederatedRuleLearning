@@ -1,6 +1,6 @@
 from multiprocessing import Process, Pool
 from multiprocessing.pool import ThreadPool
-import concurrent.futures
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import copy
 from collections import defaultdict
 
@@ -9,73 +9,36 @@ import numpy as np
 from sklearn import datasets
 from sklearn.model_selection import train_test_split
 
-import os,sys
+import os
+import sys
 sys.path.append(os.path.abspath(os.path.join("..","ex-fuzzy","ex_fuzzy")))
 
-import ex_fuzzy.fuzzy_sets as fs
-import ex_fuzzy.evolutionary_fit as GA
 import ex_fuzzy.utils as utils
-import ex_fuzzy.eval_tools as eval_tools
-import ex_fuzzy.persistence as persistence
-import ex_fuzzy.vis_rules as vis_rules
-
 from .fuzzy_functions import comparison, antecedent_comparison
 from .ex_fuzzy_manager import parse_rule_base, create_rule_base
+from .models import  FedRLSmodel, FRBCmodel
 
-
-def train_client(agent, rule_base=None):
-    if rule_base:
-        agent.fit(rule_base)
-    else:
-        agent.fit()
 
 class GlobalAgent():
     
-    def __init__(self, model_parameters):
+    def __init__(self, frbc_parameters: FRBCmodel, fedrls_parameters: FedRLSmodel):
         # model parameters:
-        self.n_gen = model_parameters["n_gen"]
-        self.n_pop = model_parameters["n_pop"]
+        self.frbc = frbc_parameters
 
-        self.nRules = model_parameters["nRules"]
-        self.nAnts = model_parameters["nAnts"]
-        self.vl = 3 #model_parameters["vl"] # FIXME: Where is it used??
-        self.tolerance = model_parameters["tolerance"]
-        self.fz_type_studied = model_parameters["fz_type_studied"]
+        self.sim_threshold = fedrls_parameters.sim_threshold
+        self.contradictory_factor = fedrls_parameters.contradictory_factor  # threshold to consider two rules with different consequents contradictory
+        self.max_retrains = fedrls_parameters.max_retrains
+        self.adaptative = fedrls_parameters.adaptative
 
-        self.runner = model_parameters["runner"]  # 1: single thread, 2+: corresponding multi-thread
-
-        self.sim_threshold = model_parameters["sim_threshold"]
-        self.contradictory_factor = model_parameters["contradictory_factor"]  # threshold to consider two rules with different consequents contradictory
-        self.max_retrains = model_parameters["max_retrains"]
+        self.nrb = None
 
     def set_clients(self, clients):
         self.clients = clients
         agents_mm = np.array([client['agent'].get_max_min() for client in self.clients.values()])
         X_range = np.stack([np.min(agents_mm[:,0],axis=0),np.max(agents_mm[:,1],axis=0)])
-        precomputed_partitions = utils.construct_partitions(X_range, self.fz_type_studied)
+        precomputed_partitions = utils.construct_partitions(X_range, self.frbc.fz_type_studied) # maybe make a model variable?
         for client in self.clients.values():
-            client['agent'].set_model(self.nRules, self.nAnts, self.fz_type_studied, self.tolerance,self.runner, self.n_gen,self. n_pop, precomputed_partitions)
-
-    def start(self):
-        agents = [client['agent'] for client in self.clients.values()]
-
-        # with concurrent.futures.ProcessPoolExecutor(max_workers=len(agents)) as executor:
-        #     futures = [executor.submit(train_client, agent) for agent in agents]
-        #     concurrent.futures.wait(futures)
-
-        # with ThreadPool (processes=4) as pool:
-        #      pool.map(train_client, agents)
-
-        # for client in self.clients.values():
-        #     pool.apply_async(target=train_client, args=(client['agent'],))
-        for agent in agents:
-            train_client(agent)
-            #  agent.fit()  # FIXME: is the same
-
-
-
-    # initialize clients, send model template? partial GA.BaseFuzzyRulesClassifier
-    # receive data
+            client['agent'].set_model(self.frbc, self.adaptative, precomputed_partitions)
 
     def linguistic_variables(self, antecedents):
         # TODO: Adapt it to other fuzzysets T2, etc
@@ -131,9 +94,9 @@ class GlobalAgent():
                 # TODO: add some metric to aid in the rule selection - rule.score, rule.confidence, rule.accuracy, rule.support
 
         df = pd.DataFrame(np.array(domains).T,columns=variable_names)
-        partitions = utils.construct_partitions(df, self.fz_type_studied)
+        partitions = utils.construct_partitions(df, self.frbc.fz_type_studied)
 
-        return rules, rules_by_class, partitions
+        return rules, rules_by_class, partitions  # Partitions are not necessary as they are all the same
 
 
     def find_contradictory_rules(self, rules_by_class):
@@ -148,7 +111,7 @@ class GlobalAgent():
         for k1_idx in range(len(classes)):
             k1 = classes[k1_idx]
             nrk1 = len(rules_by_class[k1])
-            for k2_idx in classes[k1_idx+1:]:
+            for k2_idx in range(len(classes[k1_idx:])):
                 k2 = classes[k2_idx]  # FIXME: I got an error here with the digits dataset and random 23
                 if k2 == k1:
                     continue
@@ -157,13 +120,15 @@ class GlobalAgent():
                     for i2 in range(nrk2):
                         cj = antecedent_comparison(rules_by_class[k1][i1]["var_shape"] ,rules_by_class[k2][i2]["var_shape"])
                         if cj > self.contradictory_factor:
-                            contradictory_rules.append([k1,i1,k2,i2,cj])  
-
+                            contradictory_rules.append([k1,i1,k2,i2,cj])
+        # TODO: Simplify. There are duplicated
+        # [[1, 8, 2, 0, 1], [2, 0, 1, 8, 1]]
         return contradictory_rules
 
     def find_similar_rules(self, rules_by_class):
         # Test similarity among the rules in the same class
         similar_rules = {}
+        triplets = {}
         classes = list(rules_by_class.keys())
         for k in classes:
             nrk = len(rules_by_class[k])
@@ -174,8 +139,9 @@ class GlobalAgent():
                     com_mat_k[i1][i2] = cj
                     # or instead of the matrix, directly create the list, like above
             similar_rules[k] = np.argwhere(com_mat_k>self.sim_threshold)
+            triplets[k] = [(i, j, com_mat_k[i, j]) for i, j in similar_rules[k]]
 
-        return similar_rules
+        return similar_rules, triplets
 
 
     def compare_rule_bases(self, rules_by_class):
@@ -198,37 +164,102 @@ class GlobalAgent():
             # rules_by_class[class_i][rule_i] ["score"]
             # del rules_by_class[class_i][rule_i] 
 
-        similar_rules = self.find_similar_rules(rules_by_class)
-        # TODO: I commented the previos print and following block
-        # print("similar_rules")
-        # classes = list(rules_by_class.keys())
-        # for k in classes:
-        #     if len(similar_rules[k]) > 0:
-        #         # rules_by_class[k][similar_rules[k][0][0]]["score"]  
-        #         print(similar_rules[k])
 
-        return rules_by_class
+        similar_rules, similar_rules_compvalue = self.find_similar_rules(rules_by_class)
+        similar_rules = {k:v.tolist() for k,v in similar_rules.items()}
+        # 1st remove equal rules
+        to_delete = defaultdict(set)
+        for k, v in similar_rules_compvalue.items():
+            for ci in v:
+                if ci[2] == 1.:
+                    # print(k,ci)
+                    sc1 = rules_by_class[k][ci[0]]["score"]
+                    sc2 = rules_by_class[k][ci[1]]["score"]
+                    if sc1 > sc2:
+                        to_delete[k].add(ci[1])
+                    else:
+                        to_delete[k].add(ci[0])
+        for k, v in to_delete.items():
+            for vi in sorted(v, reverse=True):
+                del rules_by_class[k][vi]
+        for k, v in similar_rules_compvalue.items():
+            for i, ci in reversed(list(enumerate(v))): # ORDER!!
+                if ci[0] in to_delete[k] or  ci[1] in to_delete[k]:
+                    # print(k,i)
+                    del similar_rules_compvalue[k][i]
+                    del similar_rules[k][i]
+        num_rules = sum([len(x) for x in rules_by_class.values()])
+
+        # select rules based on the score
+        if num_rules > self.frbc.nRules:
+            classes = list(rules_by_class.keys())
+
+            rules_scores = []
+            for k in classes:
+                rules_scores.extend([[k,i, y["score"]] for i, y  in enumerate(rules_by_class[k])])
+            # select self.nRules with the largest score
+            rules_scores_sorted = sorted(rules_scores, key=lambda x: x[-1],reverse=True)
+            selected = rules_scores_sorted[:self.frbc.nRules]
+            selected_classes = np.unique(np.array(selected)[:, 0])
+            # In case a class has not been selected, we remove the worst score's rule
+            # and add the best for that class
+            if len(selected_classes) != len(classes):
+                for k in classes:
+                    if k not in selected_classes:
+                        for inner_list in rules_scores_sorted:
+                            if inner_list[0] == k:
+                                selected[-1] = inner_list
+                                break
+
+            # print(selected)
+            selected_rules_by_class = {}
+            for element in selected:
+                key, rule_number, _ = element
+                if key in rules_by_class:
+                    if 0 <= rule_number < len(rules_by_class[key]):
+                        if key not in selected_rules_by_class:
+                            selected_rules_by_class[key] = []
+                        selected_rules_by_class[key].append(rules_by_class[key][rule_number])
+        else:
+            selected_rules_by_class = rules_by_class
+
+
+            # similar_rules_compvalue_list = []
+            # for key, list_of_lists in similar_rules_compvalue.items():
+            #     # Iterate through each inner list
+            #     for inner_list in list_of_lists:
+            #         # Prepend the key to the inner list
+            #         modified_list = [key] + list(inner_list)
+            #         # Append the modified list to the result list
+            #         similar_rules_compvalue_list.append(modified_list)
+            #
+            # for k in classes:
+            #     # Delete equal rules -> Comp = 1
+            #     # The rest comparison are not very fair 2 vs -1 ??
+            #     conflincting_rules, counts = np.unique(np.array(similar_rules_compvalue[k])[:,:2],return_counts=True)
+            #     scores = [r["score"] for r in rules_by_class[0]]
+            #     scores = [scores[y] for y in [int(x) for x in conflincting_rules]]
+            #     if len(similar_rules[k]) > 0:
+            #         # rules_by_class[k][similar_rules[k][0][0]]["score"]
+            #         print(similar_rules[k])
+
+        return selected_rules_by_class
 
     def eval_clients(self):
         performances = []
         for client in self.clients.values():
             performances.append(client['agent'].eval_test())
-        print(f"LOG: AVG {np.mean([x['final_accuracy']['accuracy'] for x in performances])}")
+        # print(f"LOG: AVG {np.mean([x['final_accuracy']['accuracy'] for x in performances])}")
         return performances
 
-
-    def print_clients(self):
+    def print_clients_rulebase(self):
         for client in self.clients.values():
             print(client['agent'].fl_classifier.rule_base)
 
-    def update_clients(self, new_rule_base): # new rule base with selected rules
+    def update_clients_rulebase(self, new_rule_base): # new rule base with selected rules
         # agents = [client['agent'] for client in self.clients.values()]
         for client in self.clients.values():
             client['agent'].update_rule_base(copy.deepcopy(new_rule_base))
-
-    def retrain_clients(self, master_rule_base):
-        for client in self.clients.values():
-            client['agent'].fit(candidate_rules=master_rule_base)
 
     def train_clients(self, master_rule_base=None):
         for client in self.clients.values():
@@ -236,34 +267,38 @@ class GlobalAgent():
                 client['agent'].fit(candidate_rules=master_rule_base)
             else:
                 client['agent'].fit()
+        # max_workers = 5
+        # with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        #     for client in self.clients.values():
+        #         if master_rule_base:
+        #             # executor.submit(client['agent'].fit(candidate_rules=master_rule_base))
+        #             executor.submit(client['agent'].fit,candidate_rules=master_rule_base)
+        #         else:
+        #             # executor.submit(client['agent'].fit())
+        #             executor.submit(client['agent'].fit)
+        # print('All done!')
 
     def main(self):
-        print(f"LOG:,0-Train")
-        agents_mm = np.array([client['agent'].get_max_min() for client in self.clients.values()])
-        X_range = np.stack([np.min(agents_mm[:,0],axis=0),np.max(agents_mm[:,1],axis=0)])
-        precomputed_partitions = utils.construct_partitions(X_range, self.fz_type_studied)
-        # Those partitions should be sent to the clients
-        print(f"LOG:,1stTrain")
-        self.start()
-        rules, rules_by_class, partitions = self.extract_rule_bases()
-        rules_by_class = self.compare_rule_bases(rules_by_class)
-        nrb = create_rule_base(partitions, rules_by_class)
         clients_performances = []
-        clients_performances.append({'type':'train','epoch':0,'results':self.eval_clients()})
-        print(f"LOG:,1stUpdate")
-        self.update_clients(nrb)
-        clients_performances.append({'type':'update','epoch':0,'results':self.eval_clients()})
-        for i in range(1,self.max_retrains+1):
-            print(f"LOG:,{i}-Retrain clients")
-            self.retrain_clients(nrb)
+        for i in range(self.max_retrains+1):
+            # print(f"LOG:,{i}-Retrain clients")
+            # Train the clients, the first time ther is no rule base and it is created on each
+            # in subsequent times the rule base from the server is provided
+            self.train_clients(self.nrb)  # FIXME: is this needed if the clientes are updated with nrb befor?
+            # Extract rules learned from each client
             rules, rules_by_class, partitions = self.extract_rule_bases()
+            # Compare and aggregate the rules -> nrb
             rules_by_class = self.compare_rule_bases(rules_by_class)
-            nrb = create_rule_base(partitions, rules_by_class)
+            consequent_names = self.clients[0]["agent"].fl_classifier.rule_base.consequent_names
+            # partitions = self.clients[0]["agent"].fl_classifier.rule_base.antecedents
+            self.nrb = create_rule_base(partitions, rules_by_class, consequent_names)
+            # Test the clients with their learned rules
             clients_performances.append({'type':'train','epoch':i,'results':self.eval_clients()})
-            print(f"LOG:,{i}-update clients")
-            self.update_clients(nrb)
+            # print(f"LOG:,{i}-update clients")
+            # Update clients rule base with the one from the server
+            self.update_clients_rulebase(self.nrb)
+            # Test the clients with the global rules
             clients_performances.append({'type':'update','epoch':i,'results':self.eval_clients()})
-            # self.print_clients()
-        print("End:")
-        print(nrb)
+        # print("End:")
+        # print(nrb)
         return rules_by_class, clients_performances
